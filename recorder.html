@@ -1,0 +1,162 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>speechToText note-taking</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        font-family: Sans;
+        box-sizing: border-box;
+      }
+      html {
+        min-height: 100vh;
+      }
+      body {
+        width: 100%;
+      }
+      button {
+        display: block;
+        margin: auto;
+        height: 10rem;
+        width: 10rem;
+        border-radius: 100%;
+        background: #ccc;
+        border: 2px solid #666;
+        margin-top: 2rem;
+      }
+      button.recording {
+        border-color: red;
+        background: #faa;
+      }
+
+      ul {
+        list-style: none;
+        margin: 1rem;
+      }
+
+      ul li {
+        padding-bottom: 1rem;
+        padding-top: 1rem;
+        border-bottom: 1px solid #ccc;
+      }
+
+      /* Element | file:///home/clement/Documents/git/assistant/recorder.html */
+
+      ul li time {
+        display: block;
+        color: #888;
+        font-size: 0.8rem;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="recordButton">RECORD</button>
+    <ul></ul>
+    <script>
+      // set up basic variables for app
+
+      const record = document.querySelector("#recordButton");
+      const notes = document.querySelector("ul");
+      let storage = JSON.parse(localStorage.getItem("notes") || "[]");
+      // visualiser setup - create web audio api context and canvas
+
+      let audioCtx;
+      function showNotes() {
+        notes.innerHTML = "";
+        storage.forEach((element) => {
+          const li = document.createElement("li");
+          const time = document.createElement("time");
+          time.innerText = new Date(element.date).toLocaleString();
+          li.innerText = element.text;
+          li.append(time);
+          notes.append(li);
+        });
+      }
+      showNotes();
+      function pushToLocalStorage(text) {
+        if (!text.length) {
+          return;
+        }
+        storage.push({
+          text,
+          date: new Date().toISOString(),
+        });
+        localStorage.setItem("notes", JSON.stringify(storage));
+        showNotes();
+      }
+      async function speechToText(base64) {
+        let response = await fetch(
+          "https://bofenghuang-speech-to-text.hf.space/run/predict",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              data: [{ name: "audio,", data: base64 }, null],
+            }),
+          }
+        );
+        if (!response.ok) {
+          console.error("error fetching backend");
+          return;
+        }
+        response = await response.json();
+        pushToLocalStorage(response.data.join("\n"));
+      }
+
+      if (navigator.mediaDevices.getUserMedia) {
+        console.log("getUserMedia supported.");
+
+        const constraints = { audio: true };
+        let chunks = [];
+
+        let onSuccess = function (stream) {
+          const mediaRecorder = new MediaRecorder(stream);
+
+          record.onclick = function () {
+            if (record.innerHTML == "STOP") {
+              mediaRecorder.stop();
+              console.log(mediaRecorder.state);
+              console.log("recorder stopped");
+              record.innerHTML = "Record";
+              record.classList.remove("recording");
+              return;
+            }
+            mediaRecorder.start();
+            record.classList.add("recording");
+            console.log(mediaRecorder.state);
+            console.log("recorder started");
+            record.innerHTML = "STOP";
+          };
+
+          mediaRecorder.onstop = function (e) {
+            console.log("data available after MediaRecorder.stop() called.");
+            const blob = new Blob(chunks, { type: "audio/wav" });
+            chunks = [];
+            const reader = new window.FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = function () {
+              base64 = reader.result;
+              speechToText(base64);
+            };
+          };
+
+          mediaRecorder.ondataavailable = function (e) {
+            chunks.push(e.data);
+          };
+        };
+
+        let onError = function (err) {
+          console.log("The following error occured: " + err);
+        };
+
+        navigator.mediaDevices
+          .getUserMedia(constraints)
+          .then(onSuccess, onError);
+      } else {
+        console.log("getUserMedia not supported on your browser!");
+      }
+    </script>
+  </body>
+</html>
